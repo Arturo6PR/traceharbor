@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "telemetry", "events", "httpServices", "consumer", "podSecurityContext", "containerSecurityContext"],
+  "properties": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "endpoint", "metricExportIntervalMs"],
+      "properties": {
+        "mode": {"enum": ["disabled", "console", "otlp"]},
+        "endpoint": {"type": "string", "minLength": 1},
+        "metricExportIntervalMs": {"type": "integer", "minimum": 100, "maximum": 60000}
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "bootstrapServers"],
+      "properties": {
+        "mode": {"enum": ["disabled", "console", "kafka"]},
+        "bootstrapServers": {"type": "string", "minLength": 3}
+      }
+    },
+    "httpServices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["orders", "payments", "inventory"],
+      "properties": {
+        "orders": {"$ref": "#/definitions/httpService"},
+        "payments": {"$ref": "#/definitions/httpService"},
+        "inventory": {"$ref": "#/definitions/httpService"}
+      }
+    },
+    "consumer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "replicas", "statePath", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "replicas": {"type": "integer", "minimum": 0, "maximum": 10},
+        "statePath": {"type": "string", "pattern": "^/"},
+        "resources": {"$ref": "#/definitions/resources"}
+      }
+    },
+    "podSecurityContext": {"type": "object"},
+    "containerSecurityContext": {"type": "object"}
+  },
+  "definitions": {
+    "httpService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port", "replicas", "resources"],
+      "properties": {
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "replicas": {"type": "integer", "minimum": 1, "maximum": 10},
+        "resources": {"$ref": "#/definitions/resources"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": {"$ref": "#/definitions/resourcePair"},
+        "limits": {"$ref": "#/definitions/resourcePair"}
+      }
+    },
+    "resourcePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": {"type": "string", "minLength": 1},
+        "memory": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -1,11 +1,14 @@
 # Architecture
 
-## Phase 3 objective
+## Phase 4 objective
 
 TraceHarbor separates deterministic service behavior, live telemetry, and asynchronous delivery. A
 checkout enters Orders and crosses explicit Payment and Inventory gateways. Orders derives one
 versioned result, returns it over HTTP, and can publish the same outcome through a
 Redpanda-compatible Kafka boundary.
+
+Phase 4 packages those boundaries without merging them. One immutable image exposes the existing
+CLI, while Compose and Helm select each process through arguments and environment configuration.
 
 ## Application boundaries
 
@@ -79,6 +82,20 @@ service receives its own runtime and resource identity. Process-global providers
 to the Collector, which routes traces to Tempo, metrics to Prometheus, and logs to Loki. Grafana
 queries all three local backends.
 
+## Deployment boundaries
+
+The multi-stage Dockerfile builds a wheel separately from the runtime. The final image runs as a
+fixed non-root UID/GID and contains no source checkout, test suite, credentials, or environment
+specific configuration. Compose supplies per-process commands, internal dependency addresses, a
+read-only root filesystem, dropped capabilities, and the sole writable consumer-state volume.
+
+The Helm chart deploys only the three HTTP applications and optional consumer. Redpanda and the
+observability backends remain independently operated dependencies. HTTP Deployments use rolling
+updates with zero planned unavailability, startup/readiness/liveness probes, explicit resource
+requests and limits, no service-account token, and restricted pod/container security contexts.
+Consumer state is an `emptyDir`, making the chart suitable for disposable `kind` validation but not
+a claim of durable production storage.
+
 ## Trust and failure boundaries
 
 - Incoming HTTP data, broker payloads, headers, configuration, and trace context are untrusted.
@@ -88,10 +105,11 @@ queries all three local backends.
 - Kafka delivery errors are surfaced instead of silently dropping events.
 - Deterministic reports and events exclude wall-clock time, paths, and random demo IDs.
 - The lab stores no payment credentials, tokens, customer records, or cloud secrets.
-- Every Compose-published port binds to loopback.
+- Every Compose-published port binds to loopback; Kubernetes has no ingress by default.
 
 ## Deferred decisions
 
-There is no transactional outbox, Schema Registry, multi-broker replication, application container,
-Kubernetes object, Helm chart, public ingress, TLS termination, production authentication, or cloud
-resource. Those omissions are explicit scope boundaries rather than production-readiness claims.
+There is no transactional outbox, Schema Registry, multi-broker replication, persistent Kubernetes
+consumer volume, public ingress, TLS termination, production authentication, autoscaling, or cloud
+resource. The Compose and Helm definitions are local validation targets, not production-readiness
+claims. Those omissions are explicit scope boundaries.

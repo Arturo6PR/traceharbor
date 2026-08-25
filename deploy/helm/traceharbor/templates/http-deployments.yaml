@@ -1,0 +1,87 @@
+{{- $root := . -}}
+{{- range $name, $service := .Values.httpServices }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "traceharbor.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "traceharbor.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $service.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "traceharbor.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "traceharbor.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          args: ["serve", "{{ $name }}", "--host", "0.0.0.0"]
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: TRACEHARBOR_TELEMETRY_MODE
+              value: {{ $root.Values.telemetry.mode | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $root.Values.telemetry.endpoint | quote }}
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ $root.Values.telemetry.metricExportIntervalMs | quote }}
+            {{- if eq $name "orders" }}
+            - name: TRACEHARBOR_PAYMENT_URL
+              value: "http://{{ include "traceharbor.fullname" $root }}-payments:{{ $root.Values.httpServices.payments.port }}"
+            - name: TRACEHARBOR_INVENTORY_URL
+              value: "http://{{ include "traceharbor.fullname" $root }}-inventory:{{ $root.Values.httpServices.inventory.port }}"
+            - name: TRACEHARBOR_EVENTS_MODE
+              value: {{ $root.Values.events.mode | quote }}
+            - name: TRACEHARBOR_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ $root.Values.events.bootstrapServers | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $service.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            {{- toYaml $service.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

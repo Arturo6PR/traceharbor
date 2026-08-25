@@ -1,0 +1,72 @@
+image:
+  repository: traceharbor
+  tag: "0.4.0"
+  pullPolicy: IfNotPresent
+
+telemetry:
+  mode: otlp
+  endpoint: http://otel-collector:4318
+  metricExportIntervalMs: 5000
+
+events:
+  mode: kafka
+  bootstrapServers: redpanda:9092
+
+httpServices:
+  orders:
+    port: 8001
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  payments:
+    port: 8002
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 192Mi
+  inventory:
+    port: 8003
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 192Mi
+
+consumer:
+  enabled: true
+  replicas: 1
+  statePath: /var/lib/traceharbor/processed-events.sqlite3
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 192Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL

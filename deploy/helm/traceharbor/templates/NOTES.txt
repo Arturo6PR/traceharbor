@@ -1,0 +1,7 @@
+TraceHarbor is installed as {{ include "traceharbor.fullname" . }}.
+
+Forward the Orders service locally:
+  kubectl port-forward service/{{ include "traceharbor.fullname" . }}-orders 8001:{{ .Values.httpServices.orders.port }}
+
+The chart intentionally does not install Redpanda or the observability backends. Configure
+events.bootstrapServers and telemetry.endpoint for services reachable inside the cluster.

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: traceharbor
+description: Local Kubernetes deployment for the TraceHarbor distributed-systems laboratory
+type: application
+version: 0.1.0
+appVersion: "0.4.0"
+kubeVersion: ">=1.29.0-0"

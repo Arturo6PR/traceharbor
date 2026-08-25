@@ -49,3 +49,76 @@ jobs:
         run: |
           docker compose -f compose.observability.yaml config --quiet
           docker compose -f compose.events.yaml config --quiet
+          docker compose -f compose.observability.yaml -f compose.events.yaml -f compose.apps.yaml config --quiet
+
+  container:
+    name: Build and smoke-test application image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build --tag traceharbor:ci .
+      - name: Verify package and deterministic outcomes
+        run: |
+          docker run --rm traceharbor:ci --version
+          docker run --rm traceharbor:ci demo --scenario healthy --format json > healthy.json
+          python -m json.tool healthy.json > /dev/null
+          set +e
+          docker run --rm traceharbor:ci demo --scenario payment_failure --format json > failure.json
+          status=$?
+          set -e
+          test "$status" -eq 20
+          python -m json.tool failure.json > /dev/null
+
+  helm:
+    name: Helm lint, render, and kind rollout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+        with:
+          version: v4.2.4
+      - name: Validate chart
+        run: |
+          helm lint deploy/helm/traceharbor
+          helm template traceharbor deploy/helm/traceharbor > rendered.yaml
+          test -s rendered.yaml
+      - name: Install kind
+        run: |
+          curl -fsSLo kind https://github.com/kubernetes-sigs/kind/releases/download/v0.32.0/kind-linux-amd64
+          curl -fsSLo kind.sha256 https://github.com/kubernetes-sigs/kind/releases/download/v0.32.0/kind-linux-amd64.sha256sum
+          echo "$(cat kind.sha256)  kind" | sha256sum --check
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+      - name: Build and load image
+        run: |
+          docker build --tag traceharbor:ci .
+          kind create cluster --config deploy/kind-config.yaml --image kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+          kind load docker-image traceharbor:ci --name traceharbor
+      - name: Deploy and verify rollouts
+        run: |
+          helm upgrade --install traceharbor deploy/helm/traceharbor \
+            --set image.repository=traceharbor \
+            --set image.tag=ci \
+            --set image.pullPolicy=IfNotPresent \
+            --set telemetry.mode=disabled \
+            --set events.mode=disabled \
+            --set consumer.enabled=false \
+            --wait --timeout 3m
+          kubectl rollout status deployment/traceharbor-traceharbor-orders --timeout=90s
+          kubectl rollout status deployment/traceharbor-traceharbor-payments --timeout=90s
+          kubectl rollout status deployment/traceharbor-traceharbor-inventory --timeout=90s
+      - name: Smoke-test the live topology
+        run: |
+          kubectl port-forward service/traceharbor-traceharbor-orders 18001:8001 > /tmp/port-forward.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:18001/healthz > health.json; then break; fi
+            sleep 1
+          done
+          python -m json.tool health.json > /dev/null
+          curl -fsS -X POST http://127.0.0.1:18001/v1/orders \
+            -H 'content-type: application/json' \
+            -H 'x-traceharbor-scenario: healthy' \
+            -d '{"order_id":"kind-smoke-001","item_id":"signal-adapter","amount_cents":12500,"currency":"USD","quantity":1}' \
+            > order.json
+          python -c 'import json; report=json.load(open("order.json")); assert report["outcome"] == "HEALTHY"'

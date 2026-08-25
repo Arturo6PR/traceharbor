@@ -1,0 +1,95 @@
+name: traceharbor-platform
+
+x-app: &app
+  image: traceharbor:local
+  build:
+    context: .
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  environment: &telemetry
+    TRACEHARBOR_TELEMETRY_MODE: otlp
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    OTEL_METRIC_EXPORT_INTERVAL: "5000"
+
+x-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 12
+  start_period: 5s
+
+services:
+  payments:
+    <<: *app
+    command: ["serve", "payments", "--host", "0.0.0.0"]
+    healthcheck:
+      <<: *healthcheck
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/healthz', timeout=2)"]
+    ports:
+      - "127.0.0.1:8002:8002"
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  inventory:
+    <<: *app
+    command: ["serve", "inventory", "--host", "0.0.0.0"]
+    healthcheck:
+      <<: *healthcheck
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/healthz', timeout=2)"]
+    ports:
+      - "127.0.0.1:8003:8003"
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  orders:
+    <<: *app
+    command: ["serve", "orders", "--host", "0.0.0.0"]
+    environment:
+      <<: *telemetry
+      TRACEHARBOR_PAYMENT_URL: http://payments:8002
+      TRACEHARBOR_INVENTORY_URL: http://inventory:8003
+      TRACEHARBOR_EVENTS_MODE: kafka
+      TRACEHARBOR_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    healthcheck:
+      <<: *healthcheck
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=2)"]
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      payments:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+  order-consumer:
+    <<: *app
+    command: ["consume", "order-audit"]
+    environment:
+      <<: *telemetry
+      TRACEHARBOR_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      TRACEHARBOR_CONSUMER_STATE_PATH: /var/lib/traceharbor/processed-events.sqlite3
+    volumes:
+      - consumer-data:/var/lib/traceharbor
+    depends_on:
+      topic-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+volumes:
+  consumer-data:

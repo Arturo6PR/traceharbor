@@ -10,7 +10,7 @@ The project answers a practical platform-engineering question:
 > service, correlate its telemetry, and safely process the resulting asynchronous event without
 > relying on a cloud account?
 
-## Current capabilities - Phase 3
+## Current capabilities - Phase 4
 
 - Three FastAPI services with explicit Orders-to-Payments/Inventory gateway boundaries.
 - W3C `traceparent` validation, creation, and downstream propagation.
@@ -24,14 +24,19 @@ The project answers a practical platform-engineering question:
 - A pinned single-broker Redpanda and Redpanda Console development topology.
 - Idempotent Kafka production, manual consumer offset commits, and persistent SQLite deduplication.
 - Bounded exponential retries and a versioned dead-letter record for malformed or exhausted work.
+- One multi-stage, non-root application image shared by every service and the consumer.
+- A unified local Compose path with read-only application filesystems, health checks, and loopback
+  ports.
+- A validated Helm chart with rolling updates, probes, resource budgets, and hardened pod settings.
+- A disposable `kind` deployment and live cross-service smoke test in CI.
 - A deterministic in-process demo with stable report-schema `1.0` JSON and explicit exit codes.
 - Cross-platform Python CI and behavior-focused pytest/Ruff validation.
 
 Telemetry and event publishing are both disabled by default, keeping the deterministic demo
 byte-repeatable and usable without Docker. The Redpanda and observability stacks are opt-in and
-local-only. TraceHarbor does **not** claim exactly-once processing, a transactional outbox,
-Kubernetes, Helm, cloud deployment, production authentication, or production-grade
-payment/inventory behavior.
+local-only. TraceHarbor does **not** claim exactly-once processing, a transactional outbox, a
+production Kubernetes deployment, cloud deployment, public ingress, TLS, production
+authentication, or production-grade payment/inventory behavior.
 
 ## Architecture
 
@@ -68,7 +73,8 @@ setup and exporters remain isolated in `observability.py`; service behavior depe
 injected telemetry runtime.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the component boundaries and
-[`docs/EVENTING.md`](docs/EVENTING.md) for delivery semantics and known limitations.
+[`docs/EVENTING.md`](docs/EVENTING.md) for delivery semantics and known limitations. Container,
+Compose, Helm, and `kind` instructions are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Install
 
@@ -193,6 +199,25 @@ Supported configuration:
 Stop the local stack with `docker compose -f compose.observability.yaml down`. See
 [`observability/README.md`](observability/README.md) for its data-retention note.
 
+## Run the complete containerized lab
+
+Use the three layered Compose files to start the services, consumer, broker, and observability
+backends on one private network:
+
+```powershell
+docker compose `
+  -f compose.observability.yaml `
+  -f compose.events.yaml `
+  -f compose.apps.yaml `
+  up --build -d
+```
+
+Orders is available at <http://127.0.0.1:8001>, Redpanda Console at
+<http://127.0.0.1:8080>, and Grafana at <http://127.0.0.1:3000>. Application containers run as a
+dedicated non-root user with read-only root filesystems; only the consumer's local SQLite ledger
+receives a writable named volume. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for lifecycle,
+Helm, and `kind` instructions.
+
 ## Run the event pipeline locally
 
 Start the pinned single-broker Redpanda topology:
@@ -252,6 +277,9 @@ ruff format --check .
 pytest
 docker compose -f compose.observability.yaml config --quiet
 docker compose -f compose.events.yaml config --quiet
+docker compose -f compose.observability.yaml -f compose.events.yaml -f compose.apps.yaml config --quiet
+helm lint deploy/helm/traceharbor
+helm template traceharbor deploy/helm/traceharbor
 ```
 
 Tests cover strict contracts, trace parsing and lineage, all scenario outcomes, correlated
@@ -259,7 +287,8 @@ OpenTelemetry console exports, configuration errors, pinned/loopback-only Compos
 Collector signal routing, Grafana provisioning, event identity and headers, producer delivery
 failures, manual commit behavior, persistent deduplication, retry schedules, DLQ routing, both event
 schemas, deterministic JSON, output-file safety, stdout/stderr separation, rendering, and every CLI
-exit code.
+exit code. CI additionally builds and smoke-tests the image, renders the chart, creates a disposable
+`kind` cluster, verifies all HTTP rollouts, and calls the live Orders topology.
 
 ## Roadmap
 
@@ -269,13 +298,13 @@ exit code.
    Prometheus, Tempo, Loki, and Grafana configuration.
 3. **Phase 3 - asynchronous work:** completed Redpanda-compatible events, idempotent producer and
    consumer boundaries, manual commits, persistent deduplication, retries, and a dead-letter queue.
-4. **Phase 4 - local platform:** containerized services, then `kind`, Helm, probes, resource limits,
-   rolling updates, and local failure exercises.
+4. **Phase 4 - local platform:** completed containerized services, unified Compose, `kind`, Helm,
+   probes, resource limits, hardened pod settings, rolling updates, and live topology smoke tests.
 5. **Phase 5 - reliability:** SLOs, error budgets, alerts, runbooks, load testing, and recovery
    verification.
 
 Cloud deployment would be considered only after the local platform is useful, tested, and
-cost-bounded. Phase 3 creates no AWS or other cloud resources.
+cost-bounded. Phases 1-4 create no AWS or other cloud resources.
 
 ## License
 

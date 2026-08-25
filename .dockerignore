@@ -1,0 +1,9 @@
+.git
+.github
+.pytest_*
+.traceharbor
+.venv*
+__pycache__
+*.py[cod]
+reports
+tests

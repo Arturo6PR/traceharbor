@@ -1,0 +1,60 @@
+{{- if .Values.consumer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "traceharbor.fullname" . }}-order-consumer
+  labels:
+    {{- include "traceharbor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: order-consumer
+spec:
+  replicas: {{ .Values.consumer.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "traceharbor.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: order-consumer
+  template:
+    metadata:
+      labels:
+        {{- include "traceharbor.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: order-consumer
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: order-consumer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["consume", "order-audit"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: TRACEHARBOR_TELEMETRY_MODE
+              value: {{ .Values.telemetry.mode | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.telemetry.endpoint | quote }}
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ .Values.telemetry.metricExportIntervalMs | quote }}
+            - name: TRACEHARBOR_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.events.bootstrapServers | quote }}
+            - name: TRACEHARBOR_CONSUMER_STATE_PATH
+              value: {{ .Values.consumer.statePath | quote }}
+          resources:
+            {{- toYaml .Values.consumer.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: consumer-state
+              mountPath: /var/lib/traceharbor
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: consumer-state
+          emptyDir: {}
+{{- end }}
