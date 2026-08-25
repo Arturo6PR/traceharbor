@@ -1,0 +1,66 @@
+{
+  "$id": "https://github.com/Arturo6PR/traceharbor/blob/main/docs/report-schema-v1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "counts": {
+      "additionalProperties": false,
+      "properties": {
+        "degraded": {"minimum": 0, "type": "integer"},
+        "failed": {"minimum": 0, "type": "integer"},
+        "ok": {"minimum": 0, "type": "integer"}
+      },
+      "required": ["ok", "degraded", "failed"],
+      "type": "object"
+    },
+    "order_id": {"minLength": 1, "type": "string"},
+    "outcome": {"enum": ["HEALTHY", "DEGRADED", "FAILED"]},
+    "report_schema_version": {"const": "1.0"},
+    "scenario": {
+      "enum": ["healthy", "payment_latency", "payment_failure", "inventory_failure"]
+    },
+    "steps": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {"minLength": 1, "type": "string"},
+          "parent_span_id": {
+            "anyOf": [
+              {"pattern": "^[0-9a-f]{16}$", "type": "string"},
+              {"type": "null"}
+            ]
+          },
+          "service": {"enum": ["orders", "payments", "inventory"]},
+          "simulated_delay_ms": {"minimum": 0, "type": "integer"},
+          "span_id": {"pattern": "^[0-9a-f]{16}$", "type": "string"},
+          "status": {"enum": ["OK", "DEGRADED", "FAILED"]},
+          "trace_id": {"pattern": "^[0-9a-f]{32}$", "type": "string"}
+        },
+        "required": [
+          "service",
+          "status",
+          "detail",
+          "trace_id",
+          "span_id",
+          "parent_span_id",
+          "simulated_delay_ms"
+        ],
+        "type": "object"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "trace_id": {"pattern": "^[0-9a-f]{32}$", "type": "string"}
+  },
+  "required": [
+    "report_schema_version",
+    "scenario",
+    "outcome",
+    "order_id",
+    "trace_id",
+    "counts",
+    "steps"
+  ],
+  "title": "TraceHarbor Phase 1 scenario report",
+  "type": "object"
+}
