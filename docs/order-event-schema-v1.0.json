@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://traceharbor.local/schemas/order-event-v1.0.json",
+  "title": "TraceHarbor order outcome event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_schema_version",
+    "event_id",
+    "event_type",
+    "source",
+    "order_id",
+    "scenario",
+    "outcome",
+    "trace_id",
+    "counts"
+  ],
+  "properties": {
+    "event_schema_version": {"const": "1.0"},
+    "event_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "event_type": {"const": "order.outcome.recorded"},
+    "source": {"const": "traceharbor.orders"},
+    "order_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-zA-Z0-9._-]+$"
+    },
+    "scenario": {
+      "enum": ["healthy", "payment_latency", "payment_failure", "inventory_failure"]
+    },
+    "outcome": {"enum": ["HEALTHY", "DEGRADED", "FAILED"]},
+    "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "degraded", "failed"],
+      "properties": {
+        "ok": {"type": "integer", "minimum": 0},
+        "degraded": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

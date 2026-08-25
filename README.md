@@ -1,15 +1,16 @@
 # TraceHarbor
 
-TraceHarbor is a local distributed-systems observability laboratory. It makes healthy, slow, and
-failed checkout requests reproducible across Orders, Payments, and Inventory, then connects the
-evidence with W3C trace context and OpenTelemetry.
+TraceHarbor is a local event-driven distributed-systems laboratory. It makes healthy, slow, and
+failed checkout requests reproducible across Orders, Payments, and Inventory, connects the evidence
+with OpenTelemetry, and carries each outcome into a Redpanda-compatible event pipeline.
 
 The project answers a practical platform-engineering question:
 
 > When a transaction becomes slow or fails, can we reproduce it, follow the request across every
-> service, and correlate its traces, metrics, and logs without relying on a cloud account?
+> service, correlate its telemetry, and safely process the resulting asynchronous event without
+> relying on a cloud account?
 
-## Current capabilities - Phase 2
+## Current capabilities - Phase 3
 
 - Three FastAPI services with explicit Orders-to-Payments/Inventory gateway boundaries.
 - W3C `traceparent` validation, creation, and downstream propagation.
@@ -18,13 +19,19 @@ The project answers a practical platform-engineering question:
 - `disabled`, `console`, and OTLP/HTTP telemetry modes selected through validated configuration.
 - A local Collector routing traces to Tempo, metrics to Prometheus, and logs to Loki.
 - Provisioned Grafana data sources and a small service-health dashboard.
+- Versioned `order.outcome.recorded` events keyed by order ID with propagated trace context.
+- OpenTelemetry consumer spans and correlated processing metrics/logs for valid events.
+- A pinned single-broker Redpanda and Redpanda Console development topology.
+- Idempotent Kafka production, manual consumer offset commits, and persistent SQLite deduplication.
+- Bounded exponential retries and a versioned dead-letter record for malformed or exhausted work.
 - A deterministic in-process demo with stable report-schema `1.0` JSON and explicit exit codes.
 - Cross-platform Python CI and behavior-focused pytest/Ruff validation.
 
-The default telemetry mode is `disabled`, which keeps the deterministic demo byte-repeatable and
-lets the services run without Docker. The observability stack is opt-in and local-only. TraceHarbor
-does **not** claim Kafka/Redpanda, Kubernetes, Helm, cloud deployment, production authentication,
-database persistence, or production-grade payment/inventory behavior yet.
+Telemetry and event publishing are both disabled by default, keeping the deterministic demo
+byte-repeatable and usable without Docker. The Redpanda and observability stacks are opt-in and
+local-only. TraceHarbor does **not** claim exactly-once processing, a transactional outbox,
+Kubernetes, Helm, cloud deployment, production authentication, or production-grade
+payment/inventory behavior.
 
 ## Architecture
 
@@ -35,6 +42,11 @@ client
 Orders --------> Payments
   |
   +------------> Inventory
+  |
+  +------------> Redpanda ----> order-audit consumer
+                                  |       |
+                                  |       +----> bounded retries
+                                  +------------> SQLite deduplication / DLQ
   |
   +--- W3C trace context across every HTTP boundary
   |
@@ -55,7 +67,8 @@ boundaries without opening network ports. Live development uses ordinary local H
 setup and exporters remain isolated in `observability.py`; service behavior depends only on an
 injected telemetry runtime.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the component and trust boundaries.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the component boundaries and
+[`docs/EVENTING.md`](docs/EVENTING.md) for delivery semantics and known limitations.
 
 ## Install
 
@@ -180,12 +193,56 @@ Supported configuration:
 Stop the local stack with `docker compose -f compose.observability.yaml down`. See
 [`observability/README.md`](observability/README.md) for its data-retention note.
 
-## Report contract
+## Run the event pipeline locally
+
+Start the pinned single-broker Redpanda topology:
+
+```powershell
+docker compose -f compose.events.yaml up -d
+```
+
+The topology creates `traceharbor.orders.v1` with three partitions and
+`traceharbor.orders.dlq.v1` with one partition. Redpanda Console is available at
+<http://127.0.0.1:8080>.
+
+Start Payments and Inventory normally. In the Orders terminal, enable Kafka-compatible event
+publishing before starting the service:
+
+```powershell
+$env:TRACEHARBOR_EVENTS_MODE = "kafka"
+$env:TRACEHARBOR_KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:19092"
+traceharbor serve orders
+```
+
+Start the audit consumer in another terminal:
+
+```powershell
+$env:TRACEHARBOR_KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:19092"
+traceharbor consume order-audit
+```
+
+Submitting an order publishes one compact event for its `HEALTHY`, `DEGRADED`, or `FAILED`
+outcome. The consumer validates the payload and required headers, skips already completed event
+IDs, retries handler failures up to three times, and sends invalid or exhausted records to the DLQ.
+Offsets are committed synchronously only after processing, duplicate recognition, or successful DLQ
+publication.
+
+Use `TRACEHARBOR_EVENTS_MODE=console` to inspect the exact event without a broker. Consumer state is
+stored in `.traceharbor/processed-events.sqlite3` by default. The relevant settings are documented
+in [`docs/EVENTING.md`](docs/EVENTING.md).
+
+## Versioned contracts
 
 The deterministic demo report schema remains `1.0` and is documented in
 [`docs/report-schema-v1.0.json`](docs/report-schema-v1.0.json). It contains the scenario, overall
 outcome, one shared trace ID, ordered service steps, parent/child span identifiers, simulated
 latency, and status counts. The versioned report is separate from live OpenTelemetry payloads.
+
+The asynchronous contracts are checked in as
+[`docs/order-event-schema-v1.0.json`](docs/order-event-schema-v1.0.json) and
+[`docs/dead-letter-schema-v1.0.json`](docs/dead-letter-schema-v1.0.json). Payloads use canonical,
+sorted JSON without machine paths or application-generated timestamps. Broker offsets provide the
+transport ordering metadata.
 
 ## Develop and verify
 
@@ -194,12 +251,15 @@ ruff check .
 ruff format --check .
 pytest
 docker compose -f compose.observability.yaml config --quiet
+docker compose -f compose.events.yaml config --quiet
 ```
 
 Tests cover strict contracts, trace parsing and lineage, all scenario outcomes, correlated
 OpenTelemetry console exports, configuration errors, pinned/loopback-only Compose services,
-Collector signal routing, Grafana provisioning, deterministic JSON, output-file safety,
-stdout/stderr separation, schema validation, rendering, and every CLI exit code.
+Collector signal routing, Grafana provisioning, event identity and headers, producer delivery
+failures, manual commit behavior, persistent deduplication, retry schedules, DLQ routing, both event
+schemas, deterministic JSON, output-file safety, stdout/stderr separation, rendering, and every CLI
+exit code.
 
 ## Roadmap
 
@@ -207,15 +267,15 @@ stdout/stderr separation, schema validation, rendering, and every CLI exit code.
    trace-context boundaries.
 2. **Phase 2 - standard observability:** completed local traces, metrics, logs, Collector routing,
    Prometheus, Tempo, Loki, and Grafana configuration.
-3. **Phase 3 - asynchronous work:** Kafka-compatible Redpanda events, idempotent consumers, retries,
-   and a dead-letter queue.
+3. **Phase 3 - asynchronous work:** completed Redpanda-compatible events, idempotent producer and
+   consumer boundaries, manual commits, persistent deduplication, retries, and a dead-letter queue.
 4. **Phase 4 - local platform:** containerized services, then `kind`, Helm, probes, resource limits,
    rolling updates, and local failure exercises.
 5. **Phase 5 - reliability:** SLOs, error budgets, alerts, runbooks, load testing, and recovery
    verification.
 
 Cloud deployment would be considered only after the local platform is useful, tested, and
-cost-bounded. Phase 2 creates no AWS or other cloud resources.
+cost-bounded. Phase 3 creates no AWS or other cloud resources.
 
 ## License
 

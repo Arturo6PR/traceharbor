@@ -41,9 +41,11 @@ jobs:
         run: traceharbor demo --scenario healthy --format json
 
   compose:
-    name: Validate local observability configuration
+    name: Validate local platform configuration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Validate Compose model
-        run: docker compose -f compose.observability.yaml config --quiet
+      - name: Validate Compose models
+        run: |
+          docker compose -f compose.observability.yaml config --quiet
+          docker compose -f compose.events.yaml config --quiet

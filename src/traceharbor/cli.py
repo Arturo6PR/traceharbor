@@ -45,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("service", choices=["orders", "payments", "inventory"])
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int)
+
+    consume_parser = subparsers.add_parser(
+        "consume", help="run one local Kafka-compatible event consumer"
+    )
+    consume_parser.add_argument("consumer", choices=["order-audit"])
+    consume_parser.add_argument("--max-messages", type=int)
     return parser
 
 
@@ -54,6 +60,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         if args.command == "serve":
             return _serve(args.service, args.host, args.port)
+        if args.command == "consume":
+            return _consume(args.consumer, args.max_messages)
         return _demo(args.scenario, args.seed, args.format, args.output)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"traceharbor: error: {exc}", file=sys.stderr)
@@ -83,6 +91,20 @@ def _serve(service: str, host: str, port: int | None) -> int:
         port=port or defaults[service],
         log_level="info",
     )
+    return 0
+
+
+def _consume(consumer: str, max_messages: int | None) -> int:
+    if max_messages is not None and max_messages < 1:
+        raise ValueError("max-messages must be at least 1")
+    if consumer != "order-audit":
+        raise ValueError(f"unsupported consumer: {consumer}")
+    from traceharbor.kafka import run_live_order_consumer
+
+    try:
+        run_live_order_consumer(max_messages)
+    except KeyboardInterrupt:
+        return 0
     return 0
 
 

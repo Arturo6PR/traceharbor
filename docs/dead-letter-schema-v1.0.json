@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://traceharbor.local/schemas/dead-letter-v1.0.json",
+  "title": "TraceHarbor order-event dead letter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dead_letter_schema_version",
+    "dead_letter_id",
+    "reason",
+    "error_type",
+    "attempts",
+    "original_topic",
+    "original_partition",
+    "original_offset",
+    "original_key_base64",
+    "original_event_id",
+    "original_payload_base64"
+  ],
+  "properties": {
+    "dead_letter_schema_version": {"const": "1.0"},
+    "dead_letter_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "reason": {"enum": ["INVALID_EVENT", "HANDLER_RETRIES_EXHAUSTED"]},
+    "error_type": {"type": "string", "minLength": 1, "maxLength": 100},
+    "attempts": {"type": "integer", "minimum": 0, "maximum": 10},
+    "original_topic": {"type": "string", "minLength": 1, "maxLength": 249},
+    "original_partition": {"type": "integer", "minimum": 0},
+    "original_offset": {"type": "integer", "minimum": 0},
+    "original_key_base64": {"type": ["string", "null"], "maxLength": 2000000},
+    "original_event_id": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "original_payload_base64": {"type": ["string", "null"], "maxLength": 2000000}
+  }
+}

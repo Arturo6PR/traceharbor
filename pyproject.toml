@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "traceharbor"
-version = "0.2.0"
-description = "A local distributed-service and OpenTelemetry incident laboratory"
+version = "0.3.0"
+description = "A local event-driven distributed-systems and OpenTelemetry laboratory"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Arturo Rivera" }]
 dependencies = [
+  "confluent-kafka>=2.15,<3",
   "fastapi>=0.115,<1",
   "httpx>=0.27,<1",
   "opentelemetry-api>=1.44,<2",

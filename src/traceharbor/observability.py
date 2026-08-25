@@ -5,14 +5,15 @@ from __future__ import annotations
 import os
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import IO
 from urllib.parse import urlparse
 
 from fastapi import FastAPI
-from opentelemetry import trace
+from opentelemetry import propagate, trace
 from opentelemetry._logs import Logger, SeverityNumber
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -36,7 +37,7 @@ from opentelemetry.sdk.trace.export import (
     ConsoleSpanExporter,
     SimpleSpanProcessor,
 )
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from traceharbor import __version__
 from traceharbor.contracts import Scenario, ServiceStep, StepStatus
@@ -113,6 +114,8 @@ class TelemetryRuntime:
         self.logger_provider: LoggerProvider | None = None
         self._step_counter = None
         self._delay_histogram = None
+        self._event_counter = None
+        self._tracer = None
         self._logger: Logger | None = None
         if config.mode is not TelemetryMode.DISABLED:
             self._initialize(console_stream or sys.stdout)
@@ -175,6 +178,43 @@ class TelemetryRuntime:
             },
         )
 
+    @contextmanager
+    def consume_event_span(self, traceparent: str, event_id: str) -> Iterator[None]:
+        if not self.enabled:
+            yield
+            return
+        parent_context = propagate.extract({"traceparent": traceparent})
+        with self._tracer.start_as_current_span(
+            "consume order.outcome.recorded",
+            context=parent_context,
+            kind=SpanKind.CONSUMER,
+            attributes={
+                "messaging.system": "kafka",
+                "messaging.destination.name": "traceharbor.orders.v1",
+                "traceharbor.event_id": event_id,
+            },
+        ):
+            yield
+
+    def record_event_result(self, disposition: str, attempts: int) -> None:
+        if not self.enabled:
+            return
+        attributes = {"disposition": disposition}
+        self._event_counter.add(1, attributes)
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attribute("traceharbor.processing.disposition", disposition)
+            span.set_attribute("traceharbor.processing.attempts", attempts)
+        self._logger.emit(
+            body="event_processed",
+            severity_number=SeverityNumber.INFO,
+            severity_text="INFO",
+            attributes={
+                "traceharbor.processing.disposition": disposition,
+                "traceharbor.processing.attempts": attempts,
+            },
+        )
+
     def force_flush(self) -> bool:
         results = []
         for provider in (self.tracer_provider, self.meter_provider, self.logger_provider):
@@ -214,6 +254,7 @@ class TelemetryRuntime:
                 OTLPLogExporter(endpoint=f"{endpoint}/v1/logs", timeout=5)
             )
         self.tracer_provider.add_span_processor(span_processor)
+        self._tracer = self.tracer_provider.get_tracer("traceharbor.events", __version__)
 
         metric_reader = PeriodicExportingMetricReader(
             metric_exporter,
@@ -230,6 +271,11 @@ class TelemetryRuntime:
             "traceharbor.service.simulated_delay",
             unit="ms",
             description="Scenario-declared service delay",
+        )
+        self._event_counter = meter.create_counter(
+            "traceharbor.events.processed",
+            unit="{event}",
+            description="Terminal TraceHarbor event-processing results",
         )
 
         self.logger_provider = LoggerProvider(resource=resource)

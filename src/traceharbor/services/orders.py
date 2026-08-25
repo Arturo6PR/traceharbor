@@ -19,6 +19,13 @@ from traceharbor.contracts import (
     ServiceStep,
     StepStatus,
 )
+from traceharbor.events import (
+    EventingConfig,
+    EventPublisher,
+    NullEventPublisher,
+    create_event_publisher,
+    order_event_message,
+)
 from traceharbor.gateways import (
     HttpInventoryGateway,
     HttpPaymentGateway,
@@ -37,10 +44,12 @@ def create_orders_app(
     *,
     id_factory: IdFactory | None = None,
     event_sink: EventSink | None = None,
+    event_publisher: EventPublisher | None = None,
     observability: TelemetryRuntime | None = None,
 ) -> FastAPI:
     ids = id_factory or RandomIdFactory()
     sink = event_sink or NullEventSink()
+    publisher = event_publisher or NullEventPublisher()
     telemetry = observability or TelemetryRuntime.disabled("orders")
     app = FastAPI(title="TraceHarbor Orders", version=__version__)
 
@@ -111,11 +120,13 @@ def create_orders_app(
             counts=_counts(steps),
             steps=steps,
         )
+        await publisher.publish(order_event_message(report, context.traceparent))
         if outcome is Outcome.FAILED:
             return JSONResponse(status_code=424, content=report.model_dump(mode="json"))
         return report
 
     telemetry.instrument_app(app)
+    app.router.add_event_handler("shutdown", publisher.close)
     app.router.add_event_handler("shutdown", telemetry.shutdown)
     return app
 
@@ -144,5 +155,6 @@ def create_live_app() -> FastAPI:
         HttpPaymentGateway(payment_url),
         HttpInventoryGateway(inventory_url),
         event_sink=JsonLineEventSink(),
+        event_publisher=create_event_publisher(EventingConfig.from_environment()),
         observability=TelemetryRuntime.from_environment("orders"),
     )

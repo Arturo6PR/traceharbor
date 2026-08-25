@@ -80,3 +80,23 @@ def test_serve_uses_a_lazy_application_factory(monkeypatch) -> None:
         "port": 8123,
         "log_level": "info",
     }
+
+
+def test_consume_dispatches_to_the_order_audit_worker(monkeypatch) -> None:
+    invocations = []
+
+    def fake_consume(max_messages=None) -> int:
+        invocations.append(max_messages)
+        return max_messages or 0
+
+    monkeypatch.setattr("traceharbor.kafka.run_live_order_consumer", fake_consume)
+
+    assert main(["consume", "order-audit", "--max-messages", "2"]) == 0
+    assert invocations == [2]
+
+
+def test_consume_rejects_invalid_message_limit(capsys) -> None:
+    assert main(["consume", "order-audit", "--max-messages", "0"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "max-messages must be at least 1" in captured.err

@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 
 from traceharbor.contracts import CheckoutRequest, Scenario, ScenarioReport
+from traceharbor.events import EventPublisher
 from traceharbor.gateways import ClientInventoryGateway, ClientPaymentGateway
 from traceharbor.services.inventory import create_inventory_app
 from traceharbor.services.orders import create_orders_app
@@ -25,7 +26,12 @@ async def _no_sleep(seconds: float) -> None:
     del seconds
 
 
-async def run_demo(scenario: Scenario, *, seed: str = "traceharbor-phase1") -> ScenarioReport:
+async def run_demo(
+    scenario: Scenario,
+    *,
+    seed: str = "traceharbor-phase1",
+    event_publisher: EventPublisher | None = None,
+) -> ScenarioReport:
     ids = DeterministicIdFactory(seed)
     sink = CollectingEventSink()
     payment_app = create_payment_app(id_factory=ids, event_sink=sink, sleep=_no_sleep)
@@ -46,6 +52,7 @@ async def run_demo(scenario: Scenario, *, seed: str = "traceharbor-phase1") -> S
             ClientInventoryGateway(inventory_client),
             id_factory=ids,
             event_sink=sink,
+            event_publisher=event_publisher,
         )
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=orders_app),
