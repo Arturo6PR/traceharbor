@@ -1,0 +1,67 @@
+groups:
+  - name: traceharbor-slo-recording
+    interval: 30s
+    rules:
+      - record: traceharbor:orders_error_ratio:rate5m
+        expr: >-
+          sum(rate(traceharbor_service_steps_total{service="orders",status="FAILED"}[5m]))
+          / clamp_min(sum(rate(traceharbor_service_steps_total{service="orders"}[5m])), 0.000000001)
+      - record: traceharbor:orders_error_ratio:rate30m
+        expr: >-
+          sum(rate(traceharbor_service_steps_total{service="orders",status="FAILED"}[30m]))
+          / clamp_min(sum(rate(traceharbor_service_steps_total{service="orders"}[30m])), 0.000000001)
+      - record: traceharbor:orders_error_ratio:rate1h
+        expr: >-
+          sum(rate(traceharbor_service_steps_total{service="orders",status="FAILED"}[1h]))
+          / clamp_min(sum(rate(traceharbor_service_steps_total{service="orders"}[1h])), 0.000000001)
+      - record: traceharbor:orders_error_ratio:rate6h
+        expr: >-
+          sum(rate(traceharbor_service_steps_total{service="orders",status="FAILED"}[6h]))
+          / clamp_min(sum(rate(traceharbor_service_steps_total{service="orders"}[6h])), 0.000000001)
+      - record: traceharbor:consumer_dead_letter_ratio:rate5m
+        expr: >-
+          sum(rate(traceharbor_events_processed_total{disposition="DEAD_LETTERED"}[5m]))
+          / clamp_min(sum(rate(traceharbor_events_processed_total[5m])), 0.000000001)
+
+  - name: traceharbor-alerts
+    rules:
+      - alert: TraceHarborOrdersAvailabilityFastBurn
+        expr: >-
+          traceharbor:orders_error_ratio:rate5m > (14.4 * 0.01)
+          and traceharbor:orders_error_ratio:rate1h > (14.4 * 0.01)
+        for: 2m
+        labels:
+          severity: critical
+          slo: orders-availability
+        annotations:
+          summary: Orders is rapidly consuming its 99% availability error budget
+          runbook: docs/RUNBOOK.md#orders-availability-burn
+      - alert: TraceHarborOrdersAvailabilitySlowBurn
+        expr: >-
+          traceharbor:orders_error_ratio:rate30m > (6 * 0.01)
+          and traceharbor:orders_error_ratio:rate6h > (6 * 0.01)
+        for: 15m
+        labels:
+          severity: warning
+          slo: orders-availability
+        annotations:
+          summary: Orders is steadily consuming its 99% availability error budget
+          runbook: docs/RUNBOOK.md#orders-availability-burn
+      - alert: TraceHarborConsumerDeadLetterRatioHigh
+        expr: traceharbor:consumer_dead_letter_ratio:rate5m > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: event-consumer
+        annotations:
+          summary: More than 5% of recently processed order events are reaching the DLQ
+          runbook: docs/RUNBOOK.md#dead-letter-ratio
+      - alert: TraceHarborTelemetryCollectorUnavailable
+        expr: up{job="traceharbor-otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          subsystem: observability
+        annotations:
+          summary: Prometheus cannot scrape TraceHarbor metrics from the Collector
+          runbook: docs/RUNBOOK.md#telemetry-collector-unavailable

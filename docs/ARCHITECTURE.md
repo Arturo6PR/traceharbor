@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase 4 objective
+## Phase 5 objective
 
 TraceHarbor separates deterministic service behavior, live telemetry, and asynchronous delivery. A
 checkout enters Orders and crosses explicit Payment and Inventory gateways. Orders derives one
@@ -9,6 +9,8 @@ Redpanda-compatible Kafka boundary.
 
 Phase 4 packages those boundaries without merging them. One immutable image exposes the existing
 CLI, while Compose and Helm select each process through arguments and environment configuration.
+Phase 5 adds measurable reliability policy around those same contracts without changing scenario
+behavior, event semantics, or cloud scope.
 
 ## Application boundaries
 
@@ -95,6 +97,22 @@ updates with zero planned unavailability, startup/readiness/liveness probes, exp
 requests and limits, no service-account token, and restricted pod/container security contexts.
 Consumer state is an `emptyDir`, making the chart suitable for disposable `kind` validation but not
 a claim of durable production storage.
+
+## Reliability boundaries
+
+Completed Orders steps are the availability SLI source. `FAILED` is an error; `OK` and `DEGRADED`
+remain available outcomes. Prometheus records four time windows and evaluates fast/slow burn alerts
+against the 1% error budget. Consumer DLQ ratio and Collector scrape continuity are supporting
+signals, not user-facing SLOs. The rules do not configure an external notification destination.
+
+`loadtest.py` owns a bounded concurrent live-client gate. HTTP and transport failures both count
+toward its error threshold, while p95 uses the nearest-rank method over measured client durations.
+Its versioned report is not deterministic because latency is evidence from a live environment.
+
+`reliability.py` owns a deterministic restart exercise: process one canonical event, close and
+reopen the SQLite ledger, then confirm the event is recognized as a duplicate without a second
+handler call or DLQ record. Its versioned result contains no clock or temporary path and is
+byte-repeatable.
 
 ## Trust and failure boundaries
 

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://traceharbor.local/schemas/recovery-report-v1.0.json",
+  "title": "TraceHarbor consumer recovery report v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recovery_report_schema_version",
+    "check",
+    "first_processing",
+    "after_restart",
+    "handler_invocations",
+    "dead_letter_events",
+    "passed"
+  ],
+  "properties": {
+    "recovery_report_schema_version": {"const": "1.0"},
+    "check": {"const": "consumer_restart_deduplication"},
+    "first_processing": {"enum": ["PROCESSED", "DUPLICATE", "DEAD_LETTERED"]},
+    "after_restart": {"enum": ["PROCESSED", "DUPLICATE", "DEAD_LETTERED"]},
+    "handler_invocations": {"type": "integer", "minimum": 0},
+    "dead_letter_events": {"type": "integer", "minimum": 0},
+    "passed": {"type": "boolean"}
+  }
+}

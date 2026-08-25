@@ -48,6 +48,7 @@ services:
       - otel-collector
     volumes:
       - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./observability/prometheus-rules.yaml:/etc/prometheus/prometheus-rules.yaml:ro
       - prometheus-data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"

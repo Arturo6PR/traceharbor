@@ -34,6 +34,74 @@
       ],
       "title": "Declared delay p95",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.01}]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {
+          "expr": "traceharbor:orders_error_ratio:rate5m",
+          "legendFormat": "Orders error ratio / 5m",
+          "refId": "A"
+        },
+        {
+          "expr": "traceharbor:orders_error_ratio:rate1h",
+          "legendFormat": "Orders error ratio / 1h",
+          "refId": "B"
+        }
+      ],
+      "title": "Orders availability error ratio (SLO target < 1%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {
+          "expr": "sum by (disposition) (rate(traceharbor_events_processed_total[$__rate_interval]))",
+          "legendFormat": "{{disposition}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer terminal outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 24, "x": 0, "y": 16},
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(ALERTS{alertstate=\"firing\",alertname=~\"TraceHarbor.*\"}) or on() vector(0)",
+          "legendFormat": "firing TraceHarbor alerts",
+          "refId": "A"
+        }
+      ],
+      "title": "Firing reliability alerts",
+      "type": "stat"
     }
   ],
   "refresh": "5s",
@@ -42,7 +110,7 @@
   "templating": {"list": []},
   "time": {"from": "now-15m", "to": "now"},
   "timezone": "browser",
-  "title": "TraceHarbor service health",
+  "title": "TraceHarbor reliability",
   "uid": "traceharbor-overview",
-  "version": 1
+  "version": 2
 }

@@ -157,6 +157,10 @@ def test_collector_routes_each_signal_to_the_expected_local_backend() -> None:
     assert all(
         pipeline["processors"] == ["memory_limiter", "batch"] for pipeline in pipelines.values()
     )
+    assert (
+        collector["exporters"]["prometheus"]["translation_strategy"]
+        == "UnderscoreEscapingWithSuffixes"
+    )
 
 
 def test_grafana_assets_are_valid_and_reference_provisioned_sources() -> None:

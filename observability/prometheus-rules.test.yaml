@@ -1,0 +1,67 @@
+rule_files:
+  - prometheus-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: sustained order errors burn the availability budget
+    interval: 1m
+    input_series:
+      - series: 'traceharbor_service_steps_total{service="orders",status="FAILED"}'
+        values: '0+1x70'
+      - series: 'traceharbor_service_steps_total{service="orders",status="OK"}'
+        values: '0+4x70'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: TraceHarborOrdersAvailabilityFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: orders-availability
+            exp_annotations:
+              summary: Orders is rapidly consuming its 99% availability error budget
+              runbook: docs/RUNBOOK.md#orders-availability-burn
+      - eval_time: 65m
+        alertname: TraceHarborOrdersAvailabilitySlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              slo: orders-availability
+            exp_annotations:
+              summary: Orders is steadily consuming its 99% availability error budget
+              runbook: docs/RUNBOOK.md#orders-availability-burn
+
+  - name: sustained dead letters trigger the consumer alert
+    interval: 1m
+    input_series:
+      - series: 'traceharbor_events_processed_total{disposition="DEAD_LETTERED"}'
+        values: '0+1x25'
+      - series: 'traceharbor_events_processed_total{disposition="PROCESSED"}'
+        values: '0+9x25'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TraceHarborConsumerDeadLetterRatioHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: event-consumer
+            exp_annotations:
+              summary: More than 5% of recently processed order events are reaching the DLQ
+              runbook: docs/RUNBOOK.md#dead-letter-ratio
+
+  - name: missing collector scrape triggers evidence-loss alert
+    interval: 1m
+    input_series:
+      - series: 'up{job="traceharbor-otel-collector"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TraceHarborTelemetryCollectorUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: traceharbor-otel-collector
+              severity: warning
+              subsystem: observability
+            exp_annotations:
+              summary: Prometheus cannot scrape TraceHarbor metrics from the Collector
+              runbook: docs/RUNBOOK.md#telemetry-collector-unavailable

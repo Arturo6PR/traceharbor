@@ -10,7 +10,7 @@ The project answers a practical platform-engineering question:
 > service, correlate its telemetry, and safely process the resulting asynchronous event without
 > relying on a cloud account?
 
-## Current capabilities - Phase 4
+## Current capabilities - Phase 5
 
 - Three FastAPI services with explicit Orders-to-Payments/Inventory gateway boundaries.
 - W3C `traceparent` validation, creation, and downstream propagation.
@@ -29,6 +29,11 @@ The project answers a practical platform-engineering question:
   ports.
 - A validated Helm chart with rolling updates, probes, resource budgets, and hardened pod settings.
 - A disposable `kind` deployment and live cross-service smoke test in CI.
+- A 99% request-based Orders availability SLO with multi-window error-budget burn alerts.
+- Consumer DLQ-ratio and telemetry-continuity alerts validated with Prometheus rule tests.
+- A bounded concurrent live-load gate with versioned JSON, explicit thresholds, and exit code `30`.
+- A deterministic consumer restart/deduplication recovery verification and versioned report.
+- A reliability dashboard, incident runbook, and reproducible local failure exercises.
 - A deterministic in-process demo with stable report-schema `1.0` JSON and explicit exit codes.
 - Cross-platform Python CI and behavior-focused pytest/Ruff validation.
 
@@ -137,6 +142,7 @@ are stable for the same seed; no wall-clock timestamps or machine paths enter th
 | `0` | The scenario completed healthy. |
 | `10` | The scenario completed with a degraded dependency. |
 | `20` | The transaction failed because a dependency failed. |
+| `30` | A live-load or recovery reliability gate failed its declared threshold. |
 | `2` | An input, output, configuration, or operational error prevented completion. |
 
 ## Run with OpenTelemetry locally
@@ -269,6 +275,32 @@ The asynchronous contracts are checked in as
 sorted JSON without machine paths or application-generated timestamps. Broker offsets provide the
 transport ordering metadata.
 
+The reliability commands use separate version `1.0` contracts:
+[`docs/load-report-schema-v1.0.json`](docs/load-report-schema-v1.0.json) and
+[`docs/recovery-report-schema-v1.0.json`](docs/recovery-report-schema-v1.0.json). Load reports
+contain measured latency and are intentionally not deterministic; recovery reports are
+byte-repeatable.
+
+## Reliability verification
+
+Run the restart-safe deduplication check without Docker or a broker:
+
+```shell
+traceharbor verify consumer-recovery --format json
+```
+
+With a live Orders service running, execute a bounded release gate:
+
+```shell
+traceharbor load --url http://127.0.0.1:8001 --requests 100 --concurrency 10 --max-error-rate 0.01 --max-p95-ms 500 --format json
+```
+
+Prometheus evaluates the 99% Orders availability SLO, fast/slow error-budget burn alerts, consumer
+DLQ ratio, and Collector continuity. The Grafana dashboard exposes their source metrics and firing
+state. See [`docs/SLO.md`](docs/SLO.md), [`docs/RUNBOOK.md`](docs/RUNBOOK.md), and
+[`docs/FAILURE_EXERCISES.md`](docs/FAILURE_EXERCISES.md). No notification channel or external
+incident system is configured.
+
 ## Develop and verify
 
 ```shell
@@ -280,6 +312,7 @@ docker compose -f compose.events.yaml config --quiet
 docker compose -f compose.observability.yaml -f compose.events.yaml -f compose.apps.yaml config --quiet
 helm lint deploy/helm/traceharbor
 helm template traceharbor deploy/helm/traceharbor
+traceharbor verify consumer-recovery --format json
 ```
 
 Tests cover strict contracts, trace parsing and lineage, all scenario outcomes, correlated
@@ -300,11 +333,11 @@ exit code. CI additionally builds and smoke-tests the image, renders the chart, 
    consumer boundaries, manual commits, persistent deduplication, retries, and a dead-letter queue.
 4. **Phase 4 - local platform:** completed containerized services, unified Compose, `kind`, Helm,
    probes, resource limits, hardened pod settings, rolling updates, and live topology smoke tests.
-5. **Phase 5 - reliability:** SLOs, error budgets, alerts, runbooks, load testing, and recovery
-   verification.
+5. **Phase 5 - reliability:** completed request-based SLOs, error budgets, tested alerts, runbooks,
+   bounded load testing, failure exercises, and deterministic recovery verification.
 
 Cloud deployment would be considered only after the local platform is useful, tested, and
-cost-bounded. Phases 1-4 create no AWS or other cloud resources.
+cost-bounded. Phases 1-5 create no AWS or other cloud resources.
 
 ## License
 

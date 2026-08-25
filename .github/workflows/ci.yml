@@ -50,6 +50,17 @@ jobs:
           docker compose -f compose.observability.yaml config --quiet
           docker compose -f compose.events.yaml config --quiet
           docker compose -f compose.observability.yaml -f compose.events.yaml -f compose.apps.yaml config --quiet
+      - name: Validate Prometheus configuration and rule behavior
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/observability:/etc/prometheus:ro" \
+            prom/prometheus:v3.10.0 \
+            check config /etc/prometheus/prometheus.yaml
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/observability:/etc/prometheus:ro" \
+            -w /etc/prometheus \
+            prom/prometheus:v3.10.0 \
+            test rules prometheus-rules.test.yaml
 
   container:
     name: Build and smoke-test application image
@@ -61,6 +72,10 @@ jobs:
       - name: Verify package and deterministic outcomes
         run: |
           docker run --rm traceharbor:ci --version
+          docker run --rm traceharbor:ci verify consumer-recovery --format json > recovery-1.json
+          docker run --rm traceharbor:ci verify consumer-recovery --format json > recovery-2.json
+          cmp recovery-1.json recovery-2.json
+          python -m json.tool recovery-1.json > /dev/null
           docker run --rm traceharbor:ci demo --scenario healthy --format json > healthy.json
           python -m json.tool healthy.json > /dev/null
           set +e
@@ -87,7 +102,8 @@ jobs:
         run: |
           curl -fsSLo kind https://github.com/kubernetes-sigs/kind/releases/download/v0.32.0/kind-linux-amd64
           curl -fsSLo kind.sha256 https://github.com/kubernetes-sigs/kind/releases/download/v0.32.0/kind-linux-amd64.sha256sum
-          echo "$(cat kind.sha256)  kind" | sha256sum --check
+          expected="$(cut -d ' ' -f 1 kind.sha256)"
+          echo "$expected  kind" | sha256sum --check
           chmod +x kind
           sudo mv kind /usr/local/bin/kind
       - name: Build and load image
@@ -122,3 +138,11 @@ jobs:
             -d '{"order_id":"kind-smoke-001","item_id":"signal-adapter","amount_cents":12500,"currency":"USD","quantity":1}' \
             > order.json
           python -c 'import json; report=json.load(open("order.json")); assert report["outcome"] == "HEALTHY"'
+          docker run --rm --network host traceharbor:ci load \
+            --url http://127.0.0.1:18001 \
+            --requests 25 \
+            --concurrency 5 \
+            --max-error-rate 0 \
+            --max-p95-ms 2000 \
+            --format json > load.json
+          python -c 'import json; report=json.load(open("load.json")); assert report["passed"] is True'
