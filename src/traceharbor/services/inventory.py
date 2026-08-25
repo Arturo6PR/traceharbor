@@ -7,7 +7,9 @@ from typing import Annotated
 from fastapi import FastAPI, Header
 from fastapi.responses import JSONResponse
 
+from traceharbor import __version__
 from traceharbor.contracts import InventoryRequest, ServiceStep
+from traceharbor.observability import TelemetryRuntime
 from traceharbor.scenarios import PROFILES
 from traceharbor.services.common import require_scenario, require_service_context
 from traceharbor.telemetry import EventSink, JsonLineEventSink, NullEventSink, emit_step
@@ -18,10 +20,12 @@ def create_inventory_app(
     *,
     id_factory: IdFactory | None = None,
     event_sink: EventSink | None = None,
+    observability: TelemetryRuntime | None = None,
 ) -> FastAPI:
     ids = id_factory or RandomIdFactory()
     sink = event_sink or NullEventSink()
-    app = FastAPI(title="TraceHarbor Inventory", version="0.1.0")
+    telemetry = observability or TelemetryRuntime.disabled("inventory")
+    app = FastAPI(title="TraceHarbor Inventory", version=__version__)
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
@@ -47,6 +51,7 @@ def create_inventory_app(
             simulated_delay_ms=behavior.simulated_delay_ms,
         )
         emit_step(sink, scenario, step)
+        telemetry.record_step(scenario, step)
         if behavior.status_code >= 400:
             return JSONResponse(
                 status_code=behavior.status_code,
@@ -54,7 +59,13 @@ def create_inventory_app(
             )
         return step
 
+    telemetry.instrument_app(app)
+    app.router.add_event_handler("shutdown", telemetry.shutdown)
     return app
 
 
-app = create_inventory_app(event_sink=JsonLineEventSink())
+def create_live_app() -> FastAPI:
+    return create_inventory_app(
+        event_sink=JsonLineEventSink(),
+        observability=TelemetryRuntime.from_environment("inventory"),
+    )

@@ -1,66 +1,61 @@
 # TraceHarbor
 
-TraceHarbor is a local distributed-service laboratory for learning how a request moves through
-multiple services, how failures propagate, and how one trace identifier connects the resulting
-evidence. Phase 1 implements an Orders service that calls Payments and Inventory through explicit
-gateway interfaces and propagates W3C `traceparent` headers across every boundary.
+TraceHarbor is a local distributed-systems observability laboratory. It makes healthy, slow, and
+failed checkout requests reproducible across Orders, Payments, and Inventory, then connects the
+evidence with W3C trace context and OpenTelemetry.
 
 The project answers a practical platform-engineering question:
 
-> When a transaction becomes slow or fails, can we reproduce the behavior and follow the same
-> request across every participating service?
+> When a transaction becomes slow or fails, can we reproduce it, follow the request across every
+> service, and correlate its traces, metrics, and logs without relying on a cloud account?
 
-## Current capabilities - Phase 1
+## Current capabilities - Phase 2
 
-- Three FastAPI services: Orders, Payments, and Inventory.
-- W3C trace-context parsing, validation, creation, and downstream propagation.
+- Three FastAPI services with explicit Orders-to-Payments/Inventory gateway boundaries.
+- W3C `traceparent` validation, creation, and downstream propagation.
 - Reproducible `healthy`, `payment_latency`, `payment_failure`, and `inventory_failure` scenarios.
-- Strict Pydantic request, step, telemetry-event, and report contracts.
-- Structured service events sharing the propagated trace ID.
-- A deterministic in-process demonstration that needs no running servers.
-- Stable text and report-schema `1.0` JSON output.
-- Distinct exit codes for healthy, degraded, failed, and operational outcomes.
-- Behavior-focused pytest coverage and Ruff configuration.
+- OpenTelemetry server spans plus service-step attributes, status, metrics, and correlated logs.
+- `disabled`, `console`, and OTLP/HTTP telemetry modes selected through validated configuration.
+- A local Collector routing traces to Tempo, metrics to Prometheus, and logs to Loki.
+- Provisioned Grafana data sources and a small service-health dashboard.
+- A deterministic in-process demo with stable report-schema `1.0` JSON and explicit exit codes.
+- Cross-platform Python CI and behavior-focused pytest/Ruff validation.
 
-Phase 1 is intentionally local and small. It does **not** yet claim OpenTelemetry SDK/Collector,
-Prometheus, Grafana, Kafka/Redpanda, Docker Compose, Kubernetes, Helm, cloud deployment, production
-authentication, or production-grade payment/inventory behavior. Those are later phases, not hidden
-dependencies of the current demo.
+The default telemetry mode is `disabled`, which keeps the deterministic demo byte-repeatable and
+lets the services run without Docker. The observability stack is opt-in and local-only. TraceHarbor
+does **not** claim Kafka/Redpanda, Kubernetes, Helm, cloud deployment, production authentication,
+database persistence, or production-grade payment/inventory behavior yet.
 
 ## Architecture
 
 ```text
-traceharbor demo
-       |
-       v
-Orders service
-  |          |
-  v          v
-Payments   Inventory
-  |          |
-  +---- propagated W3C trace context ----+
-                                          |
-                                          v
-                              versioned scenario report
+client
+  |
+  v
+Orders --------> Payments
+  |
+  +------------> Inventory
+  |
+  +--- W3C trace context across every HTTP boundary
+  |
+  +--- OpenTelemetry SDK (traces + metrics + correlated logs)
+                         |
+                         v
+                OpenTelemetry Collector
+                  |        |        |
+                  v        v        v
+                Tempo  Prometheus  Loki
+                  \        |        /
+                   \       |       /
+                         Grafana
 ```
 
-The deterministic demonstration uses HTTPX ASGI transports, so requests still cross the same HTTP
-application boundaries without opening network ports. The live development mode uses ordinary HTTP
-clients and three local ports.
+The deterministic demo uses HTTPX ASGI transports, so requests still cross the same FastAPI
+boundaries without opening network ports. Live development uses ordinary local HTTP clients. SDK
+setup and exporters remain isolated in `observability.py`; service behavior depends only on an
+injected telemetry runtime.
 
-Application responsibilities remain separate:
-
-```text
-contracts -> trace context -> centralized fault profiles
-                                  |
-                                  v
-service apps -> gateway interfaces -> scenario result -> renderer / CLI
-      |
-      v
-structured event sink
-```
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the trust boundaries and later-phase seams.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the component and trust boundaries.
 
 ## Install
 
@@ -80,9 +75,9 @@ python -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 ```
 
-## Sixty-second demonstration
+## Sixty-second deterministic demo
 
-Run the four scenarios without starting any servers:
+No servers or containers are needed:
 
 ```shell
 traceharbor demo --scenario healthy
@@ -94,7 +89,7 @@ traceharbor demo --scenario inventory_failure
 Representative degraded output:
 
 ```text
-TraceHarbor Phase 1
+TraceHarbor deterministic demo
 Scenario: payment_latency
 Outcome: DEGRADED
 Trace ID: <stable 32-character trace ID>
@@ -125,22 +120,27 @@ are stable for the same seed; no wall-clock timestamps or machine paths enter th
 | `20` | The transaction failed because a dependency failed. |
 | `2` | An input, output, configuration, or operational error prevented completion. |
 
-## Run the services on local ports
+## Run with OpenTelemetry locally
 
-The deterministic demo is the fastest path. To observe real HTTP calls, open three terminals from
-the repository's activated environment:
+Docker is needed only for the observability backends. Start the pinned local stack:
 
 ```powershell
-traceharbor serve payments
-traceharbor serve inventory
-traceharbor serve orders
+docker compose -f compose.observability.yaml up -d
 ```
 
-The defaults are Orders `8001`, Payments `8002`, and Inventory `8003`. The Orders service reads
-`TRACEHARBOR_PAYMENT_URL` and `TRACEHARBOR_INVENTORY_URL` when custom downstream locations are
-needed. The other service commands accept `--host` and `--port`.
+In each of three PowerShell terminals, set OTLP mode before starting one service:
 
-Create a healthy order from PowerShell:
+```powershell
+$env:TRACEHARBOR_TELEMETRY_MODE = "otlp"
+$env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:4318"
+traceharbor serve payments
+```
+
+Repeat for `inventory` and `orders`. Their default ports are Payments `8002`, Inventory `8003`, and
+Orders `8001`. Orders reads `TRACEHARBOR_PAYMENT_URL` and `TRACEHARBOR_INVENTORY_URL` when custom
+local addresses are needed.
+
+Send a request to Orders:
 
 ```powershell
 $body = @{
@@ -155,28 +155,37 @@ Invoke-RestMethod `
   -Method Post `
   -Uri "http://127.0.0.1:8001/v1/orders" `
   -ContentType "application/json" `
-  -Headers @{ "x-traceharbor-scenario" = "healthy" } `
+  -Headers @{ "x-traceharbor-scenario" = "payment_latency" } `
   -Body $body
 ```
 
-The development services emit one-line JSON service events. Phase 1 intentionally omits wall-clock
-timestamps so repository demonstrations remain reproducible. OpenTelemetry will own real span
-timing and export semantics in Phase 2.
+Open Grafana at <http://127.0.0.1:3000>. Prometheus, Tempo, and Loki are already provisioned. All
+published ports bind to `127.0.0.1`; this configuration is a development lab, not a public service.
+
+To inspect telemetry without Docker, use `console` mode instead:
+
+```powershell
+$env:TRACEHARBOR_TELEMETRY_MODE = "console"
+traceharbor serve payments
+```
+
+Supported configuration:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TRACEHARBOR_TELEMETRY_MODE` | `disabled` | `disabled`, `console`, or `otlp`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://127.0.0.1:4318` | OTLP/HTTP base URL; signal paths are added by TraceHarbor. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `5000` | Metric export interval in milliseconds, from 100 through 60000. |
+
+Stop the local stack with `docker compose -f compose.observability.yaml down`. See
+[`observability/README.md`](observability/README.md) for its data-retention note.
 
 ## Report contract
 
-The external report schema is `1.0` and is documented in
-[`docs/report-schema-v1.0.json`](docs/report-schema-v1.0.json). It includes:
-
-- scenario and overall outcome;
-- one shared 32-character trace ID;
-- deterministic service steps with span and parent-span identifiers;
-- explicit `OK`, `DEGRADED`, or `FAILED` status;
-- simulated latency rather than nondeterministic wall-clock measurements; and
-- status counts suitable for scripts and CI.
-
-The telemetry-event contract is independently labeled `1.0`. It is a Phase 1 structured-log seam,
-not a substitute for the OpenTelemetry protocol.
+The deterministic demo report schema remains `1.0` and is documented in
+[`docs/report-schema-v1.0.json`](docs/report-schema-v1.0.json). It contains the scenario, overall
+outcome, one shared trace ID, ordered service steps, parent/child span identifiers, simulated
+latency, and status counts. The versioned report is separate from live OpenTelemetry payloads.
 
 ## Develop and verify
 
@@ -184,26 +193,29 @@ not a substitute for the OpenTelemetry protocol.
 ruff check .
 ruff format --check .
 pytest
+docker compose -f compose.observability.yaml config --quiet
 ```
 
-Tests cover strict validation, trace-context parsing, deterministic ID generation, healthy and
-failure behavior, parent/child relationships, service health endpoints, structured events, report
-schema validation, rendering, output-file safety, standard output/error separation, deterministic
-JSON, and all exit codes.
+Tests cover strict contracts, trace parsing and lineage, all scenario outcomes, correlated
+OpenTelemetry console exports, configuration errors, pinned/loopback-only Compose services,
+Collector signal routing, Grafana provisioning, deterministic JSON, output-file safety,
+stdout/stderr separation, schema validation, rendering, and every CLI exit code.
 
 ## Roadmap
 
-1. **Phase 2 - standard observability:** OpenTelemetry SDK instrumentation and Collector export for
-   traces, metrics, and logs; Prometheus, Tempo/Loki, and Grafana locally.
-2. **Phase 3 - asynchronous work:** Kafka-compatible Redpanda events, idempotent consumers, retries,
+1. **Phase 1 - service foundations:** completed deterministic topology, fault profiles, report, and
+   trace-context boundaries.
+2. **Phase 2 - standard observability:** completed local traces, metrics, logs, Collector routing,
+   Prometheus, Tempo, Loki, and Grafana configuration.
+3. **Phase 3 - asynchronous work:** Kafka-compatible Redpanda events, idempotent consumers, retries,
    and a dead-letter queue.
-3. **Phase 4 - local platform:** Docker Compose first, then `kind`, Helm, probes, resource limits,
+4. **Phase 4 - local platform:** containerized services, then `kind`, Helm, probes, resource limits,
    rolling updates, and local failure exercises.
-4. **Phase 5 - reliability:** SLOs, error budgets, alerts, runbooks, load testing, and recovery
+5. **Phase 5 - reliability:** SLOs, error budgets, alerts, runbooks, load testing, and recovery
    verification.
 
-AWS or another cloud provider would only be considered after the entire local platform is useful,
-tested, and cost-bounded.
+Cloud deployment would be considered only after the local platform is useful, tested, and
+cost-bounded. Phase 2 creates no AWS or other cloud resources.
 
 ## License
 

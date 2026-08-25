@@ -20,7 +20,7 @@ def render_json(report: ScenarioReport) -> str:
 
 def render_text(report: ScenarioReport) -> str:
     lines = [
-        "TraceHarbor Phase 1",
+        "TraceHarbor deterministic demo",
         f"Scenario: {report.scenario.value}",
         f"Outcome: {report.outcome.value}",
         f"Trace ID: {report.trace_id}",

@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import FastAPI, Header
 from fastapi.responses import JSONResponse
 
+from traceharbor import __version__
 from traceharbor.contracts import (
     CheckoutRequest,
     InventoryRequest,
@@ -24,6 +25,7 @@ from traceharbor.gateways import (
     InventoryGateway,
     PaymentGateway,
 )
+from traceharbor.observability import TelemetryRuntime
 from traceharbor.services.common import require_scenario, require_service_context
 from traceharbor.telemetry import EventSink, JsonLineEventSink, NullEventSink, emit_step
 from traceharbor.tracecontext import IdFactory, RandomIdFactory
@@ -35,10 +37,12 @@ def create_orders_app(
     *,
     id_factory: IdFactory | None = None,
     event_sink: EventSink | None = None,
+    observability: TelemetryRuntime | None = None,
 ) -> FastAPI:
     ids = id_factory or RandomIdFactory()
     sink = event_sink or NullEventSink()
-    app = FastAPI(title="TraceHarbor Orders", version="0.1.0")
+    telemetry = observability or TelemetryRuntime.disabled("orders")
+    app = FastAPI(title="TraceHarbor Orders", version=__version__)
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
@@ -97,6 +101,7 @@ def create_orders_app(
             parent_span_id=context.parent_span_id,
         )
         emit_step(sink, scenario, order_step)
+        telemetry.record_step(scenario, order_step)
         steps = (order_step, *downstream_steps)
         report = ScenarioReport(
             scenario=scenario,
@@ -110,6 +115,8 @@ def create_orders_app(
             return JSONResponse(status_code=424, content=report.model_dump(mode="json"))
         return report
 
+    telemetry.instrument_app(app)
+    app.router.add_event_handler("shutdown", telemetry.shutdown)
     return app
 
 
@@ -137,7 +144,5 @@ def create_live_app() -> FastAPI:
         HttpPaymentGateway(payment_url),
         HttpInventoryGateway(inventory_url),
         event_sink=JsonLineEventSink(),
+        observability=TelemetryRuntime.from_environment("orders"),
     )
-
-
-app = create_live_app()

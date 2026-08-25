@@ -77,7 +77,8 @@ def _serve(service: str, host: str, port: int | None) -> int:
     if port is not None and not 1 <= port <= 65_535:
         raise ValueError("port must be between 1 and 65535")
     uvicorn.run(
-        f"traceharbor.services.{service}:app",
+        f"traceharbor.services.{service}:create_live_app",
+        factory=True,
         host=host,
         port=port or defaults[service],
         log_level="info",

@@ -8,6 +8,8 @@ import secrets
 from dataclasses import dataclass
 from typing import Protocol
 
+from opentelemetry import trace
+
 TRACEPARENT_PATTERN = re.compile(
     r"^(?P<version>[0-9a-f]{2})-(?P<trace_id>[0-9a-f]{32})-"
     r"(?P<span_id>[0-9a-f]{16})-(?P<flags>[0-9a-f]{2})$"
@@ -89,6 +91,15 @@ def parse_traceparent(value: str) -> TraceContext:
 
 
 def service_context(value: str | None, id_factory: IdFactory) -> TraceContext:
+    active_span = trace.get_current_span().get_span_context()
+    if active_span.is_valid:
+        parent = parse_traceparent(value) if value is not None else None
+        return TraceContext(
+            trace_id=f"{active_span.trace_id:032x}",
+            span_id=f"{active_span.span_id:016x}",
+            parent_span_id=parent.span_id if parent is not None else None,
+            sampled=active_span.trace_flags.sampled,
+        )
     if value is None:
         return id_factory.root()
     return id_factory.child(parse_traceparent(value))

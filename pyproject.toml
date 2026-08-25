@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "traceharbor"
-version = "0.1.0"
-description = "A local distributed-service incident and trace-context laboratory"
+version = "0.2.0"
+description = "A local distributed-service and OpenTelemetry incident laboratory"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -13,6 +13,10 @@ authors = [{ name = "Arturo Rivera" }]
 dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.27,<1",
+  "opentelemetry-api>=1.44,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.44,<2",
+  "opentelemetry-instrumentation-fastapi>=0.65b0,<1",
+  "opentelemetry-sdk>=1.44,<2",
   "pydantic>=2.10,<3",
   "uvicorn>=0.30,<1",
 ]
@@ -20,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "jsonschema>=4,<5",
+  "PyYAML>=6,<7",
   "pytest>=8,<10",
   "ruff>=0.8,<1",
 ]

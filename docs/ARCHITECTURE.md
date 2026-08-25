@@ -1,66 +1,81 @@
 # Architecture
 
-## Phase 1 objective
+## Phase 2 objective
 
-Phase 1 establishes service and telemetry boundaries before adding an observability stack. A single
-checkout request enters Orders, then crosses explicit Payment and Inventory gateway interfaces. The
-same W3C trace ID is retained, while each service creates its own span ID and records the caller's
-span ID as its parent.
+TraceHarbor separates deterministic service behavior from live observability. A checkout enters
+Orders and crosses explicit Payment and Inventory gateways. W3C trace context preserves lineage;
+an injected OpenTelemetry runtime records live spans, metrics, and correlated logs without changing
+the versioned demo report.
 
-## Components
+## Application boundaries
 
 ### Contracts
 
 Strict Pydantic models reject unknown properties and malformed identifiers at the HTTP boundary.
-Scenario reports use schema version `1.0`; structured service events use their own `1.0` label.
+Scenario reports use schema version `1.0`; the original deterministic event seam has an independent
+`1.0` contract. Neither contract is an OpenTelemetry wire format.
 
 ### Trace context
 
-`tracecontext.py` owns W3C `traceparent` parsing and generation. Live services use cryptographically
-random identifiers. The checked-in demo injects a content-derived factory so repeated commands are
-byte-identical and testable.
+`tracecontext.py` owns validation and deterministic fallback IDs. With instrumentation enabled, the
+active OpenTelemetry server span supplies the service trace/span ID. The incoming W3C span remains
+the recorded parent, and gateways propagate the active service context downstream. With telemetry
+disabled, the injected ID factory preserves the original byte-repeatable demo.
 
-The Phase 1 implementation supports W3C version `00` only. It validates formatting and rejects
-all-zero trace or span IDs. It does not attempt baggage, tracestate, remote sampling policy, clocks,
-or exporter behavior; those belong to the OpenTelemetry phase.
+Only W3C version `00` is accepted by the explicit contract. All-zero IDs are rejected. Baggage,
+tracestate, and remote sampling policy remain outside the current scope.
 
 ### Fault profiles
 
-`scenarios.py` is the only source of simulated service status, detail, HTTP status, and delay. The
-service handlers do not embed separate fault rules. Demo latency is recorded but not slept, while
-the live Payment service sleeps for the declared delay.
+`scenarios.py` is the sole source of simulated status, detail, HTTP status, and delay. Handlers do
+not carry separate fault rules. Demo latency is declared but not slept; the live Payment service
+sleeps for the declared delay.
 
-### Service applications
+### Services and gateways
 
 Payments and Inventory translate requests into service steps. Orders coordinates downstream calls,
-stops before Inventory when Payment fails, derives the overall outcome, and emits the versioned
-report. Expected dependency failures remain structured results; malformed inputs remain ordinary
-HTTP client errors.
+stops before Inventory when Payment fails, derives the outcome, and emits the report. Live gateways
+use HTTPX; the demo uses HTTPX ASGI transports against the same FastAPI apps.
 
-### Gateways
+## Observability boundaries
 
-Orders depends on protocols rather than concrete transports. Live gateways use HTTPX over local
-HTTP. The demo uses HTTPX ASGI transports against the same FastAPI applications. This keeps tests
-fast without replacing the application boundary with direct function calls.
+`observability.py` owns SDK resources, providers, instruments, processors, and exporters. Each
+service receives its own runtime and resource identity (`traceharbor.orders`,
+`traceharbor.payments`, or `traceharbor.inventory`); process-global providers are not mutated.
 
-### Telemetry seam
+- FastAPI instrumentation creates server spans and extracts incoming W3C context.
+- A counter records completed service steps by service, scenario, and status.
+- A histogram records scenario-declared delay in milliseconds.
+- Service-step logs use the OpenTelemetry log API inside the active span context.
+- Failed work marks its server span as error; degraded work adds a span event.
 
-Services emit strict structured events through an injected sink. The live development apps use
-newline-delimited JSON; tests and demos inject collecting or null sinks. OpenTelemetry SDK code is
-not present yet, so Phase 2 can replace the sink without mixing exporter logic into business flow.
+`disabled` mode creates no SDK provider. `console` mode exports locally to standard output. `otlp`
+mode uses OTLP/HTTP signal endpoints derived from one validated base URL.
+
+```text
+service SDK --OTLP--> Collector --traces--> Tempo
+                            |------metrics--> Prometheus
+                            |---------logs--> Loki
+
+                 Grafana queries all three backends
+```
+
+The Collector applies a memory limiter before batching. Its debug exporter remains enabled for
+local troubleshooting. Compose pins every image and binds published ports to loopback.
 
 ## Trust and failure boundaries
 
-- Incoming JSON, scenario headers, and trace context are untrusted and validated.
-- Payments and Inventory are downstream dependencies; connection and response failures become
-  failed steps rather than unhandled exceptions.
-- Reports exclude timestamps, local paths, random IDs in demo mode, and exception messages that can
-  vary by platform.
+- Incoming JSON, scenario headers, and explicit trace context are untrusted and validated.
+- Telemetry mode, export interval, service label, and OTLP base URL are validated at startup.
+- Payments and Inventory are downstream dependencies; expected failures become structured steps.
+- Deterministic reports exclude wall-clock time, paths, random demo IDs, and platform exceptions.
 - Output files use exclusive creation and are never silently replaced.
-- No service stores payment data, credentials, tokens, or customer records.
+- The lab stores no payment credentials, tokens, customer records, or cloud secrets.
+- Grafana anonymous Viewer access is safe only because every published port is loopback-only.
 
 ## Deferred decisions
 
-Phase 1 has no database, broker, container, Kubernetes object, cloud resource, authentication,
-secret, TLS termination, or OpenTelemetry Collector. Those omissions are explicit scope boundaries,
-not production-readiness claims.
+There is no database, broker, Kafka/Redpanda stream, Kubernetes object, Helm chart, public ingress,
+TLS termination, production authentication, or cloud resource. The Compose file runs observability
+backends only; application containers begin in Phase 4. These are explicit scope boundaries rather
+than production-readiness claims.

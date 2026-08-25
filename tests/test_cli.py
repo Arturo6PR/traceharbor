@@ -61,3 +61,22 @@ def test_text_renderer_is_human_readable(capsys) -> None:
     assert "Outcome: DEGRADED" in captured.out
     assert "payments [DEGRADED]" in captured.out
     assert captured.err == ""
+
+
+def test_serve_uses_a_lazy_application_factory(monkeypatch) -> None:
+    invocation = {}
+
+    def fake_run(app: str, **kwargs) -> None:
+        invocation["app"] = app
+        invocation.update(kwargs)
+
+    monkeypatch.setattr("traceharbor.cli.uvicorn.run", fake_run)
+
+    assert main(["serve", "payments", "--port", "8123"]) == 0
+    assert invocation == {
+        "app": "traceharbor.services.payments:create_live_app",
+        "factory": True,
+        "host": "127.0.0.1",
+        "port": 8123,
+        "log_level": "info",
+    }
